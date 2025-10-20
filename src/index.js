@@ -1,20 +1,24 @@
 import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
+import cors from "cors";
+import { connectDB } from "./config/database.js";
 import authRoutes from "./router/authRoutes.js";
 
 dotenv.config();
-const app = express();
 
+const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.use("/auth", authRoutes);
-
 app.get("/", (req, res) => {
-  res.send("Auth Service funcionando");
+  res.send("Auth microservice funcionando correctamente");
 });
 
-app.listen(process.env.PORT, () =>
-  console.log(`Auth Service corriendo en puerto ${process.env.PORT}`)
-);
+app.use("/api/v1/auth", authRoutes);
+
+const PORT = process.env.PORT || 3001;
+
+app.listen(PORT, async () => {
+  console.log(`Auth microservice corriendo en puerto ${PORT}`);
+  await connectDB();
+});

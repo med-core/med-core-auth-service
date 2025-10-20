@@ -1,4 +1,4 @@
-import { prisma } from "../config/prismaClient.js";
+import { prisma } from "../config/database.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { generateVerificationCode, sendVerificationEmail } from "../config/emailConfig.js";

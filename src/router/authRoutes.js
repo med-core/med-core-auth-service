@@ -2,6 +2,9 @@ import express from "express";
 import * as authController from "../controllers/AuthController.js";
 
 const router = express.Router();
+router.get("/test", (req, res) => {
+  res.send("Ruta de prueba OK");
+});
 
 // Crear rutas para signup y login
 // https://med-core.vercel.app/api/v1/auth/login
