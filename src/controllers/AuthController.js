@@ -173,3 +173,17 @@ export const login = async (req, res) => {
     return res.status(500).json({ message: "Error interno del servidor" });
   }
 };
+
+
+// ================= VERIFY TOKEN =================
+export const verifyToken = (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ error: "Token requerido" });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    return res.json({ valid: true, user: decoded });
+  } catch (err) {
+    return res.status(401).json({ valid: false, error: "Token inválido" });
+  }
+};

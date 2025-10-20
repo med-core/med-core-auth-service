@@ -22,3 +22,6 @@ app.listen(PORT, async () => {
   console.log(`Auth microservice corriendo en puerto ${PORT}`);
   await connectDB();
 });
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
