@@ -1,70 +1,70 @@
 import { getPrismaClient } from "../config/database.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import axios from "axios";
 import { generateVerificationCode, sendVerificationEmail } from "../config/emailConfig.js";
 
 const prisma = getPrismaClient();
+
 // ================= SIGNUP =================
 export const signup = async (req, res) => {
   try {
-    let { email, current_password, fullname } = req.body;
+    let { email, password, fullname, role } = req.body;
 
-    if (!email || !current_password || !fullname) {
+    if (!email || !password || !fullname) {
       return res.status(400).json({ message: "Faltan datos obligatorios" });
     }
 
     email = email.toLowerCase().trim();
-    const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: "Formato de correo electrónico es incorrecto" });
-    }
-
-    if (current_password.length < 6) {
-      return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres" });
-    }
-
-    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/;
-    if (!passwordRegex.test(current_password)) {
-      return res.status(400).json({ message: "La contraseña debe tener al menos un número" });
-    }
-
-    const userExists = await prisma.users.findUnique({ where: { email } });
-    if (userExists) {
+    const existingAuth = await prisma.auth.findUnique({ where: { email } });
+    if (existingAuth) {
       return res.status(400).json({ message: "El usuario ya está registrado" });
     }
 
+    // Hash contraseña
+    const passwordHash = await bcrypt.hash(password, 10);
     const verificationCode = generateVerificationCode();
-    const verificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+    const verificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
-    const createUser = await prisma.users.create({
+    // Crear registro en Auth
+    const auth = await prisma.auth.create({
       data: {
         email,
-        current_password: await bcrypt.hash(current_password, 10),
-        fullname,
-        status: "PENDING",
+        passwordHash,
+        isEmailVerified: false,
         verificationCode,
         verificationExpires,
       },
     });
 
-    const emailResult = await sendVerificationEmail(email, fullname, verificationCode);
-    console.log("Resultado envío email:", emailResult);
+    // Crear el usuario en el User Service
+    const userResponse = await axios.post(
+      "http://med-core-user-service:3002/api/v1/users/create",
+      {
+        email,
+        fullname,
+        role: role || "PACIENTE",
+        status: "PENDING",
+      }
+    );
 
-    if (!emailResult.success) {
-      await prisma.users.delete({ where: { id: createUser.id } });
-      return res.status(500).json({
-        message: "Error enviando el email de verificación. Intenta nuevamente.",
-        error: emailResult.error,
-      });
-    }
+    // Vincular el userId
+    const updatedAuth = await prisma.auth.update({
+      where: { id: auth.id },
+      data: { userId: userResponse.data.user.id },
+    });
+
+    // Enviar correo de verificación
+    await sendVerificationEmail(email, fullname, verificationCode);
 
     return res.status(201).json({
-      message: "Usuario registrado correctamente. Revisa tu email para verificar la cuenta.",
-      user: createUser,
+      message: "Usuario registrado correctamente. Verifica tu correo electrónico.",
+      auth: updatedAuth,
+      user: userResponse.data.user,
     });
   } catch (error) {
     console.error("Error en signup:", error);
-    return res.status(500).json({ message: "Error interno del servidor" });
+    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
   }
 };
 
@@ -77,31 +77,40 @@ export const verifyEmail = async (req, res) => {
     }
 
     email = email.toLowerCase().trim();
-    const user = await prisma.users.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
-    if (user.status === "ACTIVE") return res.status(400).json({ message: "La cuenta ya está verificada" });
+    const auth = await prisma.auth.findUnique({ where: { email } });
+    if (!auth) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (auth.isEmailVerified) return res.status(400).json({ message: "El email ya fue verificado" });
 
-    if (user.verificationCode !== verificationCode || new Date() > user.verificationExpires) {
+    if (
+      auth.verificationCode !== verificationCode ||
+      new Date() > auth.verificationExpires
+    ) {
       return res.status(400).json({ message: "Código de verificación incorrecto o expirado" });
     }
 
-    const updateUser = await prisma.users.update({
-      where: { id: user.id },
-      data: { status: "ACTIVE", verificationCode: null, verificationExpires: null },
+    // Actualizar en Auth
+    const updatedAuth = await prisma.auth.update({
+      where: { email },
+      data: {
+        isEmailVerified: true,
+        verificationCode: null,
+        verificationExpires: null,
+      },
     });
+
+    // También actualizar el estado del usuario en el User Service
+    await axios.patch(
+      `http://med-core-user-service:3002/api/v1/users/status/${updatedAuth.userId}`,
+      { status: "ACTIVE" }
+    );
 
     return res.status(200).json({
       message: "Email verificado correctamente. Tu cuenta ahora está activa.",
-      user: {
-        id: updateUser.id,
-        email: updateUser.email,
-        fullname: updateUser.fullname,
-        status: updateUser.status,
-      },
+      userId: updatedAuth.userId,
     });
   } catch (error) {
     console.error("Error en verifyEmail:", error);
-    return res.status(500).json({ message: "Error interno del servidor" });
+    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
   }
 };
 
@@ -112,50 +121,55 @@ export const resendVerificationCode = async (req, res) => {
     if (!email) return res.status(400).json({ message: "Email es requerido" });
 
     email = email.toLowerCase().trim();
-    const user = await prisma.users.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
-    if (user.status === "ACTIVE") return res.status(400).json({ message: "La cuenta ya está verificada" });
+    const auth = await prisma.auth.findUnique({ where: { email } });
+    if (!auth) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (auth.isEmailVerified) {
+      return res.status(400).json({ message: "La cuenta ya está verificada" });
+    }
 
     const verificationCode = generateVerificationCode();
     const verificationExpires = new Date(Date.now() + 15 * 60 * 1000);
 
-    await prisma.users.update({
-      where: { id: user.id },
+    await prisma.auth.update({
+      where: { email },
       data: { verificationCode, verificationExpires },
     });
 
-    const emailResult = await sendVerificationEmail(email, user.fullname, verificationCode);
-    if (!emailResult.success) {
-      return res.status(500).json({ message: "Error enviando email de verificación" });
-    }
+    await sendVerificationEmail(email, "Usuario", verificationCode);
 
     return res.status(200).json({ message: "Nuevo código de verificación enviado a tu email" });
   } catch (error) {
     console.error("Error en resendVerificationCode:", error);
-    return res.status(500).json({ message: "Error interno del servidor" });
+    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
   }
 };
 
 // ================= LOGIN =================
 export const login = async (req, res) => {
   try {
-    let { email, current_password } = req.body;
-    if (!email || !current_password) {
+    let { email, password } = req.body;
+    if (!email || !password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" });
     }
 
     email = email.toLowerCase().trim();
-    const user = await prisma.users.findUnique({ where: { email } });
-    if (!user) return res.status(404).json({ message: "Usuario no encontrado" });
-    if (user.status !== "ACTIVE") return res.status(403).json({ message: "La cuenta no está verificada o activa" });
+    const auth = await prisma.auth.findUnique({ where: { email } });
+    if (!auth) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (!auth.isEmailVerified) {
+      return res.status(403).json({ message: "La cuenta no está verificada" });
+    }
 
-    const isMatch = await bcrypt.compare(current_password, user.current_password);
+    const isMatch = await bcrypt.compare(password, auth.passwordHash);
     if (!isMatch) return res.status(401).json({ message: "Contraseña incorrecta" });
 
+    if (!process.env.JWT_SECRET) {
+      throw new Error("JWT_SECRET no está definido");
+    }
+
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || "secret_key",
-      { expiresIn: "1h" }
+      { id: auth.userId, email: auth.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
     );
 
     return res.status(200).json({
@@ -166,14 +180,14 @@ export const login = async (req, res) => {
         email: user.email,
         fullname: user.fullname,
         status: user.status,
+        role: user.role,
       },
     });
   } catch (error) {
     console.error("Error en login:", error);
-    return res.status(500).json({ message: "Error interno del servidor" });
+    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
   }
 };
-
 
 // ================= VERIFY TOKEN =================
 export const verifyToken = (req, res) => {

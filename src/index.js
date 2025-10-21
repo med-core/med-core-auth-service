@@ -5,7 +5,16 @@ import authRoutes from "./router/authRoutes.js";
 
 
 const app = express();
-app.use(cors());
+// Middleware CORS
+app.use(
+  cors({
+    origin: [
+      'http://localhost:5173'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
