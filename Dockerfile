@@ -1,15 +1,19 @@
 FROM node:20-alpine
 WORKDIR /app
 EXPOSE 3001
-CMD ["node", "src/index.js"]
-# Copiamos schema.prisma y package.json
+
+ARG DATABASE_URL
+ENV DATABASE_URL=$DATABASE_URL 
+
 COPY package*.json prisma/ ./
 
-# Instalamos dependencias
 RUN npm install --production
 
-# Generamos Prisma Client dentro del contenedor
+RUN apk add --no-cache curl
+
 RUN npx prisma generate
 
-# Copiamos el resto del código
+ENV DATABASE_URL= 
+
 COPY . .
+CMD ["node", "src/index.js"]

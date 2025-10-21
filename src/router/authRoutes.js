@@ -1,6 +1,6 @@
 import express from "express";
 import * as authController from "../controllers/AuthController.js";
-import { verifyToken } from "../middlewares/verifyToken.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 const router = express.Router();
 router.get("/test", (req, res) => {
   res.send("Ruta de prueba OK");

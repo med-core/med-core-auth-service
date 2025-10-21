@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
-import prisma from "../config/database.js";
-
+import { getPrismaClient } from "../config/database.js";
+const prisma = getPrismaClient();
 // Verifica el token JWT y carga el usuario
 export async function verifyToken(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1]; // "Bearer <token>"

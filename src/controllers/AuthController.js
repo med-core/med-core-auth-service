@@ -1,9 +1,9 @@
-import { prisma } from "../config/database.js";
+import { getPrismaClient } from "../config/database.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { generateVerificationCode, sendVerificationEmail } from "../config/emailConfig.js";
 
-
+const prisma = getPrismaClient();
 // ================= SIGNUP =================
 export const signup = async (req, res) => {
   try {
