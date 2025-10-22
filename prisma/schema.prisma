@@ -10,7 +10,7 @@ datasource db {
 
 model Auth {
   id                   String         @id @default(auto()) @map("_id") @db.ObjectId
-  userId               String         @unique @db.ObjectId // referencia al usuario en User Service
+  userId               String?        @unique @db.ObjectId // referencia al usuario en User Service
   email                String         @unique
   passwordHash         String
   isEmailVerified      Boolean        @default(false)
