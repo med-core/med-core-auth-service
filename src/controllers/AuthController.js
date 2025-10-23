@@ -9,10 +9,10 @@ const prisma = getPrismaClient();
 // ================= SIGNUP =================
 export const signup = async (req, res) => {
   try {
-    let { email,  current_password, fullname, role } = req.body;
+    let { email, current_password, fullname, role } = req.body;
 
     // Validaciones básicas
-    if (!email || ! current_password || !fullname) {
+    if (!email || !current_password || !fullname) {
       return res.status(400).json({ message: "Faltan datos obligatorios" });
     }
 
@@ -23,12 +23,12 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "Formato de correo electrónico incorrecto" });
     }
 
-    if ( current_password.length < 6) {
+    if (current_password.length < 6) {
       return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres" });
     }
 
     const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/;
-    if (!passwordRegex.test( current_password)) {
+    if (!passwordRegex.test(current_password)) {
       return res.status(400).json({ message: "La contraseña debe contener al menos un número" });
     }
 
@@ -39,7 +39,7 @@ export const signup = async (req, res) => {
     }
 
     // Generar hash de contraseña y código de verificación
-    const passwordHash = await bcrypt.hash( current_password, 10);
+    const passwordHash = await bcrypt.hash(current_password, 10);
     const verificationCode = generateVerificationCode();
     const verificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
@@ -184,9 +184,9 @@ export const resendVerificationCode = async (req, res) => {
 // ================= LOGIN =================
 export const login = async (req, res) => {
   try {
-    let { email,  current_password } = req.body;
+    let { email, current_password } = req.body;
     console.log("Body recibido:", req.body);
-    if (!email || ! current_password) {
+    if (!email || !current_password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" });
     }
 
@@ -198,18 +198,21 @@ export const login = async (req, res) => {
       return res.status(403).json({ message: "La cuenta no está verificada" });
     }
 
-    const isMatch = await bcrypt.compare( current_password, auth.passwordHash);
+    const isMatch = await bcrypt.compare(current_password, auth.passwordHash);
     if (!isMatch) return res.status(401).json({ message: "Contraseña incorrecta" });
 
     if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET no está definido");
 
-    const token = jwt.sign({ id: auth.userId, email: auth.email }, process.env.JWT_SECRET, {
-      expiresIn: "24h",
-    });
-
-    // Obtener datos del usuario desde User Service
-    const userRes = await axios.get(`http://localhost:3000/api/users/${auth.userId}`);
+    //Obtener datos reales del usuario
+    const userRes = await axios.get(`http://med-core-user-service:3000/api/v1/users/${auth.userId}`);
     const user = userRes.data;
+
+    //Generar token con el rol correcto
+    const token = jwt.sign(
+      { id: auth.userId, email: auth.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
 
     return res.status(200).json({
       message: "Inicio de sesión exitoso",
