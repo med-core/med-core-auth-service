@@ -105,6 +105,128 @@ export const signup = async (req, res) => {
   }
 };
 
+//===========BULKSIGN-UP============================
+export const bulkSignup = async (req, res) => {
+  console.log("📦 BODY RECIBIDO EN BULKSIGNUP:", req.body);
+  try {
+    const users = req.body.users; // [{ email, current_password, fullname, role }, ...]
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ message: "Debe enviar un array de usuarios" });
+    }
+
+    const results = {
+      inserted: 0,
+      duplicates: 0,
+      errors: 0,
+      details: [],
+    };
+
+    for (const u of users) {
+      try {
+        let { email, current_password, fullname, role } = u;
+        console.log("Procesando usuario:", email);
+
+        if (!email || !current_password || !fullname) {
+          console.log("Faltan datos obligatorios para:", email);
+          results.errors++;
+          results.details.push({ email, error: "Faltan datos obligatorios" });
+          continue;
+        }
+
+        email = email.toLowerCase().trim();
+        fullname = fullname.trim();
+        role = role ? role.toUpperCase() : "PACIENTE";
+
+        // Validar formato email
+        const emailRegex = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
+        if (!emailRegex.test(email)) {
+          console.log("Formato de correo incorrecto:", email);
+          results.errors++;
+          results.details.push({ email, error: "Formato de correo incorrecto" });
+          continue;
+        }
+
+        if (current_password.length < 6) {
+          console.log("Contraseña muy corta para:", email);
+          results.errors++;
+          results.details.push({ email, error: "La contraseña debe tener al menos 6 caracteres" });
+          continue;
+        }
+
+        const existingAuth = await prisma.auth.findUnique({ where: { email } });
+        if (existingAuth) {
+          console.log("Usuario ya existe en Auth:", email);
+          results.duplicates++;
+          results.details.push({ email, error: "Usuario ya existe" });
+          continue;
+        }
+
+        const passwordHash = await bcrypt.hash(current_password, 10);
+
+        console.log("Creando registro en Auth para:", email);
+        const auth = await prisma.auth.create({
+          data: {
+            email,
+            passwordHash,
+            isEmailVerified: true,
+          },
+        });
+
+        console.log("Creando usuario en User Service para:", email);
+        let userResponse;
+        try {
+          userResponse = await axios.post(
+            "http://med-core-user-service:3000/api/v1/users/create",
+            {
+              email,
+              fullname,
+              role,
+              status: "PENDING",
+              current_password: passwordHash,
+            }
+          );
+          console.log("Respuesta User Service para", email, ":", userResponse.data);
+        } catch (err) {
+          console.error("Error creando usuario en User Service para", email, err.message);
+          await prisma.auth.delete({ where: { id: auth.id } });
+          results.errors++;
+          results.details.push({ email, error: "Error creando usuario en User Service: " + err.message });
+          continue;
+        }
+
+        console.log("Actualizando userId en Auth para:", email);
+        await prisma.auth.update({
+          where: { id: auth.id },
+          data: { userId: userResponse.data.user.id },
+        });
+
+
+        results.inserted++;
+        results.details.push({ email, status: "Creado correctamente" });
+
+      } catch (err) {
+        console.error("Error interno procesando usuario", u.email, err.message);
+        results.errors++;
+        results.details.push({ email: u.email, error: err.message });
+      }
+    }
+
+    console.log("Bulk signup finalizado:", results);
+
+    return res.json({
+      message: "Carga masiva completada",
+      total: users.length,
+      ...results,
+    });
+
+  } catch (error) {
+    console.error("Error en bulkSignup:", error);
+    return res.status(500).json({ message: "Error interno del servidor", error: error.message });
+  }
+};
+
+
 
 // ================= VERIFY EMAIL =================
 export const verifyEmail = async (req, res) => {
