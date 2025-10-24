@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { connectDB } from "./config/database.js";
 import authRoutes from "./router/authRoutes.js";
+import { sendError } from "./utils/errorHandler.js";
 
 
 const app = express();
@@ -33,4 +34,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     console.log(`Auth microservice corriendo en puerto ${PORT}`);
     await connectDB();
+});
+app.use((err, req, res, next) => {
+  sendError(err, res);
 });

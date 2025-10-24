@@ -1,30 +1,32 @@
 import jwt from "jsonwebtoken";
 import { getPrismaClient } from "../config/database.js";
-const prisma = getPrismaClient();
-// Verifica el token JWT y carga el usuario
-export async function verifyToken(req, res, next) {
-  const token = req.headers.authorization?.split(" ")[1]; // "Bearer <token>"
-  console.log(req.headers.authorization);
-  if (!token) {
-    return res.status(401).json({ message: "Token no proporcionado." });
-  }
+import axios from "axios";
 
+const prisma = getPrismaClient();
+
+export const verifyToken = async (req, res, next) => {
   try {
-    // Decodifica el token (clave secreta del .env)
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ message: "Token requerido" });
+
+    const token = authHeader.split(" ")[1];
+    if (!token) return res.status(401).json({ message: "Token requerido" });
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Busca el usuario en la base de datos
-    const user = await prisma.users.findUnique({ where: { id: decoded.id } });
-    if (!user) {
-      return res.status(401).json({ message: "Usuario no encontrado o inválido." });
-    }
+    // Buscar en tabla auth
+    const auth = await prisma.auth.findUnique({ where: { id: decoded.id } });
+    if (!auth) return res.status(401).json({ message: "Usuario no encontrado en Auth" });
 
-    // Agrega el usuario al request
-    req.user = user;
+    // Obtener datos de usuario desde User Service
+    const userRes = await axios.get(
+      `http://med-core-user-service:3000/api/v1/users/${auth.userId}`
+    );
+    req.user = userRes.data;
 
     next();
   } catch (error) {
-    console.error("Error al verificar token:", error);
-    res.status(401).json({ message: "Token inválido o expirado." });
+    console.error("Error al verificar token:", error.message);
+    return res.status(401).json({ message: "Token inválido o expirado" });
   }
-}
+};

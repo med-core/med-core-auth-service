@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import axios from "axios";
 import { generateVerificationCode, sendVerificationEmail } from "../config/emailConfig.js";
+import { AppError, ErrorCodes } from "../utils/errorHandler.js";
 
 const prisma = getPrismaClient();
 
@@ -186,30 +187,41 @@ export const login = async (req, res) => {
   try {
     let { email, current_password } = req.body;
     console.log("Body recibido:", req.body);
+
     if (!email || !current_password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" });
     }
 
     email = email.toLowerCase().trim();
+
+    // Buscar usuario en la colección Auth
     const auth = await prisma.auth.findUnique({ where: { email } });
     if (!auth) return res.status(404).json({ message: "Usuario no encontrado" });
 
+    // Verificar si el correo fue confirmado
     if (!auth.isEmailVerified) {
       return res.status(403).json({ message: "La cuenta no está verificada" });
     }
 
+    // Validar contraseña
     const isMatch = await bcrypt.compare(current_password, auth.passwordHash);
     if (!isMatch) return res.status(401).json({ message: "Contraseña incorrecta" });
 
-    if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET no está definido");
-
-    //Obtener datos reales del usuario
+    // Obtener los datos reales del usuario desde el user-service
     const userRes = await axios.get(`http://med-core-user-service:3000/api/v1/users/${auth.userId}`);
     const user = userRes.data;
 
-    //Generar token con el rol correcto
+    // Verificar si el usuario está activo antes de generar el token
+    if (user.status !== "ACTIVE") {
+      return res.status(403).json({ message: "Cuenta inactiva. Contacte al administrador." });
+    }
+
+    // Validar que exista JWT_SECRET
+    if (!process.env.JWT_SECRET) throw new Error("JWT_SECRET no está definido");
+
+    // Generar token con los datos correctos
     const token = jwt.sign(
-      { id: auth.userId, email: auth.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "24h" }
     );
@@ -233,14 +245,20 @@ export const login = async (req, res) => {
 
 
 // ================= VERIFY TOKEN =================
-export const verifyToken = (req, res) => {
-  const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Token requerido" });
-
+export const verify = async (req, res) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return res.json({ valid: true, user: decoded });
-  } catch (err) {
-    return res.status(401).json({ valid: false, error: "Token inválido" });
+    const user = req.user;
+    res.status(200).json({
+      message: "Token válido",
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    throw new AppError("Error al verificar el token", 500, {
+      code: ErrorCodes.SERVICE_UNAVAILABLE
+    });
   }
 };

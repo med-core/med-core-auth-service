@@ -13,5 +13,5 @@ router.post("/sign-up", authController.signup);
 router.post("/verify-email", authController.verifyEmail);
 router.post("/resend-verification", authController.resendVerificationCode);
 router.post("/login", authController.login);
-router.get("/verify", verifyToken);
+router.get("/verify", verifyToken, authController.verify);
 export default router;
