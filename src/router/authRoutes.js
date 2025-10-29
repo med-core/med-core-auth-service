@@ -10,7 +10,7 @@ router.get("/test", (req, res) => {
 // https://med-core.vercel.app/api/v1/auth/login
 // http://localhost:3002/api/v1/auth/sign-up
 router.post("/sign-up", authController.signup);
-router.post("/bulk-sign-up",authController.bulkSignup)
+router.post("/bulk-sign-up",authController.bulkSignUp)
 router.post("/verify-email", authController.verifyEmail);
 router.post("/resend-verification", authController.resendVerificationCode);
 router.post("/login", authController.login);
