@@ -107,38 +107,38 @@ export const signup = async (req, res) => {
 
 //============BulkSignUp=========
 export const bulkSignUp = async (req, res) => {
+  const { userId, email, password, verified = false } = req.body;
+
+  if (!userId || !email || !password) {
+    return res.status(400).json({ message: 'Faltan userId, email o password' });
+  }
+
   try {
+    const existing = await prisma.auth.findFirst({
+      where: { OR: [{ email }, { userId }] }
+    });
 
-    const { email, fullname, password: rawPassword, current_password, role, verified, userId } = req.body;
-    const password = rawPassword || current_password;
-
-    if (!email || !fullname || !password) {
-      return res.status(400).json({ message: "Faltan campos obligatorios" });
-    }
-
-    const existingAuth = await prisma.auth.findUnique({ where: { email } });
-    if (existingAuth) {
-      return res.status(400).json({ message: "El usuario ya está registrado en Auth" });
+    if (existing) {
+      return res.status(200).json({ message: 'Ya existe en Auth', userId });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
     await prisma.auth.create({
       data: {
+        userId,
         email: email.toLowerCase(),
         passwordHash,
-        isEmailVerified: verified || false,
-        userId,
-        verificationCode: verified ? null : generateVerificationCode(),
-        verificationExpires: verified ? null : new Date(Date.now() + 15 * 60 * 1000),
+        isEmailVerified: verified,
+        verificationCode: verified ? null : undefined,
+        verificationExpires: verified ? null : undefined,
       },
     });
 
-    return res.status(201).json({ message: `Usuario ${email} creado correctamente en Auth` });
-
+    res.status(201).json({ message: 'Auth creado', userId });
   } catch (error) {
-    console.error("Error en bulkSignUp:", error);
-    return res.status(500).json({ message: "Error al registrar usuario en AuthService" });
+    console.error('Error bulkSignUp:', error);
+    res.status(500).json({ message: 'Error interno en Auth Service' });
   }
 };
 
