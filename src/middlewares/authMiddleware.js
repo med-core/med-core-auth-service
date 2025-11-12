@@ -14,8 +14,8 @@ export const verifyToken = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Buscar en tabla auth
-    const auth = await prisma.auth.findUnique({ where: { id: decoded.id } });
+    // Buscar en tabla auth por userId (no por id)
+    const auth = await prisma.auth.findFirst({ where: { userId: decoded.id } });
     if (!auth) return res.status(401).json({ message: "Usuario no encontrado en Auth" });
 
     // Obtener datos de usuario desde User Service
@@ -23,7 +23,6 @@ export const verifyToken = async (req, res, next) => {
       `http://med-core-user-service:3000/api/v1/users/${auth.userId}`
     );
     req.user = userRes.data;
-
     next();
   } catch (error) {
     console.error("Error al verificar token:", error.message);

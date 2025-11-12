@@ -33,39 +33,13 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: "La contraseña debe contener al menos un número" });
     }
 
-    // Revisar si ya existe en Auth
+    // Verificar si ya existe en Auth
     const existingAuth = await prisma.auth.findUnique({ where: { email } });
     if (existingAuth) {
       return res.status(400).json({ message: "El usuario ya está registrado" });
     }
 
-    // Generar hash de contraseña y código de verificación
-    const passwordHash = await bcrypt.hash(current_password, 10);
-    const verificationCode = generateVerificationCode();
-    const verificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
-
-    // Crear registro en Auth
-    const auth = await prisma.auth.create({
-      data: {
-        email,
-        passwordHash,
-        isEmailVerified: false,
-        verificationCode,
-        verificationExpires,
-      },
-    });
-
-    // Enviar correo de verificación primero
-    const emailResult = await sendVerificationEmail(email, fullname, verificationCode);
-    if (!emailResult.success) {
-      await prisma.auth.delete({ where: { id: auth.id } });
-      return res.status(500).json({
-        message: "Error enviando email de verificación. Intenta nuevamente.",
-        error: emailResult.error,
-      });
-    }
-
-    // Crear el usuario en el User Service
+    // Crear el usuario primero en el User Service
     let userResponse;
     try {
       userResponse = await axios.post(
@@ -79,24 +53,52 @@ export const signup = async (req, res) => {
         }
       );
     } catch (err) {
-      // Si falla User Service, eliminamos el Auth creado para mantener consistencia
-      await prisma.auth.delete({ where: { id: auth.id } });
+      console.error("Error creando usuario en User Service:", err.message);
       return res.status(500).json({
         message: "Error creando usuario en User Service",
         error: err.message,
       });
     }
 
-    // Vincular userId en Auth
-    await prisma.auth.update({
-      where: { id: auth.id },
-      data: { userId: userResponse.data.user.id },
+    const user = userResponse.data.user;
+    if (!user || !user.id) {
+      return res.status(500).json({ message: "Error: el User Service no devolvió un ID válido" });
+    }
+
+    // Generar hash y código de verificación
+    const passwordHash = await bcrypt.hash(current_password, 10);
+    const verificationCode = generateVerificationCode();
+    const verificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+
+    // Crear registro en Auth
+    const auth = await prisma.auth.create({
+      data: {
+        userId: user.id,
+        email,
+        passwordHash,
+        isEmailVerified: false,
+        verificationCode,
+        verificationExpires,
+      },
     });
 
+    // Enviar correo de verificación
+    const emailResult = await sendVerificationEmail(email, fullname, verificationCode);
+    if (!emailResult.success) {
+      // rollback: borrar el usuario creado en User Service
+      await axios.delete(`http://med-core-user-service:3000/api/v1/users/${user.id}`);
+      await prisma.auth.delete({ where: { id: auth.id } });
+      return res.status(500).json({
+        message: "Error enviando email de verificación. Intenta nuevamente.",
+        error: emailResult.error,
+      });
+    }
+
+    // Responder
     return res.status(201).json({
       message: "Usuario registrado correctamente. Revisa tu email para verificar la cuenta.",
       auth,
-      user: userResponse.data.user,
+      user,
     });
 
   } catch (error) {
@@ -107,38 +109,40 @@ export const signup = async (req, res) => {
 
 //============BulkSignUp=========
 export const bulkSignUp = async (req, res) => {
-  const { userId, email, password, verified = false } = req.body;
-
-  if (!userId || !email || !password) {
-    return res.status(400).json({ message: 'Faltan userId, email o password' });
-  }
-
   try {
+    const { userId, email, password, verified = false } = req.body;
+
+    if (!userId || !email || !password) {
+      return res.status(400).json({ message: "Faltan userId, email o password" });
+    }
+
     const existing = await prisma.auth.findFirst({
-      where: { OR: [{ email }, { userId }] }
+      where: { OR: [{ email }, { userId }] },
     });
 
     if (existing) {
-      return res.status(200).json({ message: 'Ya existe en Auth', userId });
+      return res.status(200).json({ message: "Usuario ya existente en Auth", userId });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    await prisma.auth.create({
+    const newAuth = await prisma.auth.create({
       data: {
         userId,
         email: email.toLowerCase(),
         passwordHash,
         isEmailVerified: verified,
-        verificationCode: verified ? null : undefined,
-        verificationExpires: verified ? null : undefined,
+        verificationCode: verified ? null : Math.floor(100000 + Math.random() * 900000).toString(),
+        verificationExpires: verified ? null : new Date(Date.now() + 15 * 60 * 1000),
       },
     });
 
-    res.status(201).json({ message: 'Auth creado', userId });
+    console.log("Auth creado:", newAuth.email);
+
+    return res.status(201).json({ message: "Auth creado correctamente", userId });
   } catch (error) {
-    console.error('Error bulkSignUp:', error);
-    res.status(500).json({ message: 'Error interno en Auth Service' });
+    console.error("Error en bulkSignUp:", error);
+    return res.status(500).json({ message: "Error interno en Auth Service" });
   }
 };
 

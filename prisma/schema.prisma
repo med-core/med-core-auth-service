@@ -9,29 +9,29 @@ datasource db {
 }
 
 model Auth {
-  id                   String         @id @default(auto()) @map("_id") @db.ObjectId
-  userId               String         @unique @db.ObjectId
-  email                String         @unique
-  passwordHash         String
-  isEmailVerified      Boolean        @default(false)
-  verificationCode     String?
-  verificationExpires  DateTime?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  id                  String          @id @default(auto()) @map("_id") @db.ObjectId
+  userId              String          @unique @db.ObjectId // referencia al Users.id
+  email               String          @unique
+  passwordHash        String
+  isEmailVerified     Boolean         @default(false)
+  verificationCode    String?
+  verificationExpires DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
-  refreshTokens        RefreshTokens[]
+  refreshTokens       RefreshTokens[]
 
   @@map("Auth")
 }
 
 model RefreshTokens {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  token       String   @unique
-  authId      String   @db.ObjectId
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  token      String   @unique
+  authId     String   @db.ObjectId
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
 
-  auth        Auth     @relation(fields: [authId], references: [id], onDelete: Cascade)
+  auth       Auth     @relation(fields: [authId], references: [id], onDelete: Cascade)
 
   @@map("RefreshTokens")
 }
